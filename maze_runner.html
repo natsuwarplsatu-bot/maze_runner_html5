@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Maze Runner</title>
+
+<style>
+body{
+    margin:0;
+    background:#111;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    height:100vh;
+    overflow:hidden;
+}
+
+canvas{
+    border:3px solid #222;
+    box-shadow:0 0 25px rgba(0,0,0,0.6);
+}
+</style>
+</head>
+
+<body>
+
+<canvas id="c" width="480" height="520"></canvas>
+
+<script>
+
+// setup
+var canvas=document.getElementById('c'),
+    ctx=canvas.getContext('2d');
+
+var W=canvas.width,
+    H=canvas.height,
+    keys={},
+    lastTime=0;
+
+var keysCollected=0,
+    totalKeys=0,
+    steps=0,
+    moveTimer=0,
+    timer=0,
+    bestSteps=9999;
+
+var MOVE_DELAY=0.11;
+var gameState='splash';
+var currentLevel=0;
+var blinkTimer=0;
+var hintText='';
+var hintArrow='';
+var shakeTime=0;
+var shakePower=0;
+var playerPulse=0;
+
+// ✅ BONUS 4 — Random seed generator
+var seed=Date.now();
+function seededRand(){
+    seed=(seed*9301+49297)%233280;
+    return seed/233280;
+}
+
+// ✅ BONUS 4 — Generate labirin prosedural
+function generateMaze(rows,cols,s){
+    seed=s;
+    var maze=[];
+    for(var r=0;r<rows;r++){
+        maze[r]=[];
+        for(var c=0;c<cols;c++){
+            maze[r][c]=1;
+        }
+    }
+
+    function carve(r,c){
+        var dirs=[[0,2],[0,-2],[2,0],[-2,0]];
+        for(var i=dirs.length-1;i>0;i--){
+            var j=Math.floor(seededRand()*(i+1));
+            var tmp=dirs[i]; dirs[i]=dirs[j]; dirs[j]=tmp;
+        }
+        for(var d=0;d<dirs.length;d++){
+            var nr=r+dirs[d][0];
+            var nc=c+dirs[d][1];
+            if(nr>0&&nr<rows-1&&nc>0&&nc<cols-1&&maze[nr][nc]===1){
+                maze[r+dirs[d][0]/2][c+dirs[d][1]/2]=0;
+                maze[nr][nc]=0;
+                carve(nr,nc);
+            }
+        }
+    }
+
+    maze[1][1]=0;
+    carve(1,1);
+
+    var emptyTiles=[];
+    for(var r=1;r<rows-1;r++){
+        for(var c=1;c<cols-1;c++){
+            if(maze[r][c]===0) emptyTiles.push([r,c]);
+        }
+    }
+
+    var half=Math.floor(emptyTiles.length/2);
+    var keyPos=emptyTiles[half];
+    maze[keyPos[0]][keyPos[1]]=2;
+
+    var exitPos=emptyTiles[emptyTiles.length-1];
+    maze[exitPos[0]][exitPos[1]]=3;
+
+    return maze;
+}
+
+// Maps tetap (level 1-3) + level 4 prosedural
+var MAPS=[
+[
+[1,1,1,1,1,1,1,1,1,1,1,1],
+[1,0,0,0,1,0,0,0,0,0,0,1],
+[1,0,1,0,1,0,1,1,1,1,0,1],
+[1,0,1,0,0,0,1,0,0,0,0,1],
+[1,0,1,1,1,1,1,0,1,1,1,1],
+[1,0,0,0,0,0,0,0,1,2,0,1],
+[1,1,1,0,1,1,1,1,1,1,0,1],
+[1,0,0,0,1,0,0,0,0,0,0,1],
+[1,0,1,1,1,0,1,1,1,1,0,1],
+[1,0,0,0,0,0,1,0,0,0,0,1],
+[1,1,1,1,1,0,1,0,1,1,0,1],
+[1,0,0,0,0,0,0,0,0,0,3,1],
+[1,1,1,1,1,1,1,1,1,1,1,1],
+],
+[
+[1,1,1,1,1,1,1,1,1,1,1,1],
+[1,0,1,0,0,0,1,0,0,0,0,1],
+[1,0,1,0,1,0,0,0,1,1,0,1],
+[1,0,0,0,1,1,1,0,0,0,0,1],
+[1,1,1,0,0,0,1,1,1,0,1,1],
+[1,0,0,0,1,0,0,0,0,0,0,1],
+[1,0,1,1,1,0,1,1,1,0,1,1],
+[1,0,0,2,0,0,0,0,0,0,0,1],
+[1,1,1,0,1,1,1,0,1,1,0,1],
+[1,0,0,0,0,0,0,0,0,0,0,1],
+[1,0,1,1,1,0,1,1,0,1,0,1],
+[1,0,0,0,0,0,0,0,0,0,3,1],
+[1,1,1,1,1,1,1,1,1,1,1,1],
+],
+[
+[1,1,1,1,1,1,1,1,1,1,1,1],
+[1,0,0,0,1,0,0,0,0,0,0,1],
+[1,0,1,0,1,0,1,1,1,1,0,1],
+[1,0,1,2,0,0,1,0,0,0,0,1],
+[1,0,1,1,1,1,1,0,1,1,1,1],
+[1,0,0,0,0,0,0,0,1,2,0,1],
+[1,1,1,0,1,1,1,1,1,1,0,1],
+[1,0,0,0,1,0,0,0,0,0,0,1],
+[1,0,1,1,1,0,1,1,1,1,0,1],
+[1,0,0,0,0,0,1,0,0,0,0,1],
+[1,1,1,1,1,0,1,0,1,1,0,1],
+[1,2,0,0,0,0,0,0,0,0,3,1],
+[1,1,1,1,1,1,1,1,1,1,1,1],
+],
+// Level 4 — prosedural, diisi saat loadLevel(3)
+null
+];
+
+var enemies=[
+[{ col:5,row:7,dc:1,dr:0,timer:0,speed:0.4 }],
+[
+{ col:2,row:5,dc:1,dr:0,timer:0,speed:0.35 },
+{ col:8,row:9,dc:0,dr:1,timer:0,speed:0.3 }
+],
+[
+{ col:3,row:5,dc:1,dr:0,timer:0,speed:0.25 },
+{ col:7,row:9,dc:1,dr:0,timer:0,speed:0.3 }
+],
+// Level 4 — musuh diisi dinamis
+[]
+];
+
+var mapState=[],ROWS=0,COLS=0,TILE=0;
+var player={ col:1,row:1 };
+var activeEnemies=[];
+
+// Audio
+function beep(freq,duration,type){
+    var audio=new(window.AudioContext||window.webkitAudioContext)();
+    var osc=audio.createOscillator();
+    var gain=audio.createGain();
+    osc.connect(gain); gain.connect(audio.destination);
+    osc.type=type||'square';
+    osc.frequency.value=freq;
+    gain.gain.setValueAtTime(0.1,audio.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001,audio.currentTime+duration);
+    osc.start(); osc.stop(audio.currentTime+duration);
+}
+function sfxStep(){ beep(180,0.03,'square'); }
+function sfxKey(){  beep(700,0.15,'sine');   }
+function sfxWin(){  beep(1000,0.4,'sine');   }
+function sfxLose(){ beep(120,0.5,'square');  }
+function sfxBump(){ beep(160,0.06,'square'); }
+
+function startShake(power,time){ shakePower=power; shakeTime=time; }
+
+//Hint panah arah
+function updateHint(){
+    if(steps<=30){ hintText=''; hintArrow=''; return; }
+    for(var r=0;r<ROWS;r++){
+        for(var c=0;c<COLS;c++){
+            if(mapState[r][c]===2){
+                var horizontal=c<COLS/2?'kiri':'kanan';
+                var vertical=r<ROWS/2?'atas':'bawah';
+                hintText='💡 Kunci ada di '+vertical+' '+horizontal;
+
+                // tentukan panah berdasarkan posisi relatif kunci ke player
+                var dc=c-player.col;
+                var dr=r-player.row;
+                if(Math.abs(dc)>Math.abs(dr)){
+                    hintArrow=dc>0?'→':'←';
+                } else {
+                    hintArrow=dr>0?'↓':'↑';
+                }
+                return;
+            }
+        }
+    }
+    hintText=''; hintArrow='';
+}
+
+function loadLevel(n){
+    currentLevel=n;
+
+    //generate level 4 prosedural
+    if(n===3){
+        var newSeed=Date.now();
+        MAPS[3]=generateMaze(13,12,newSeed);
+        var enemyTiles=[];
+        for(var r=1;r<13;r++)
+            for(var c=1;c<12;c++)
+                if(MAPS[3][r][c]===0 && !(r===1&&c===1))
+                    enemyTiles.push([r,c]);
+
+        enemies[3]=[
+            { col:enemyTiles[10][1], row:enemyTiles[10][0], dc:1,dr:0,timer:0,speed:0.3 },
+            { col:enemyTiles[20][1], row:enemyTiles[20][0], dc:0,dr:1,timer:0,speed:0.28 }
+        ];
+    }
+
+    mapState=MAPS[n].map(function(r){ return r.slice(); });
+    ROWS=mapState.length; COLS=mapState[0].length;
+    TILE=Math.floor(Math.min(W/COLS,(H-44)/ROWS));
+    steps=0; timer=0; moveTimer=0; hintText=''; hintArrow='';
+    playerPulse=0;
+    bestSteps=parseInt(localStorage.getItem('mazeBS'+n)||'9999');
+    totalKeys=0;
+    for(var r=0;r<ROWS;r++)
+        for(var c=0;c<COLS;c++)
+            if(mapState[r][c]===2) totalKeys++;
+    keysCollected=0;
+    player.col=1; player.row=1;
+    activeEnemies=enemies[n].map(function(e){
+        return{ col:e.col,row:e.row,dc:e.dc,dr:e.dr,timer:0,speed:e.speed };
+    });
+    gameState='playing';
+}
+
+function updateEnemies(dt){
+    for(var i=0;i<activeEnemies.length;i++){
+        var e=activeEnemies[i];
+        e.timer+=dt;
+        if(e.timer<e.speed) continue;
+        e.timer-=e.speed;
+        var nc=e.col+e.dc, nr=e.row+e.dr;
+        if(nr<0||nr>=ROWS||nc<0||nc>=COLS||mapState[nr][nc]===1){
+            e.dc=-e.dc; e.dr=-e.dr;
+        } else {
+            e.col=nc; e.row=nr;
+        }
+        if(e.col===player.col&&e.row===player.row){
+            sfxLose(); startShake(10,0.4);
+            gameState='gameover'; return;
+        }
+    }
+}
+
+function tryMove(dc,dr){
+    var nc=player.col+dc, nr=player.row+dr;
+    if(nr<0||nr>=ROWS||nc<0||nc>=COLS) return;
+    var t=mapState[nr][nc];
+    if(t===1){ sfxBump(); return; }
+    if(t===3&&keysCollected<totalKeys) return;
+    if(t===2){
+        keysCollected++;
+        mapState[nr][nc]=0;
+        sfxKey(); startShake(4,0.15);
+    }
+    if(t===3&&keysCollected===totalKeys){
+        if(steps<bestSteps){
+            bestSteps=steps;
+            localStorage.setItem('mazeBS'+currentLevel,bestSteps);
+        }
+        sfxWin();
+        gameState='win'; return;
+    }
+    player.col=nc; player.row=nr;
+    steps++;
+    updateHint();
+    sfxStep();
+    for(var i=0;i<activeEnemies.length;i++){
+        if(activeEnemies[i].col===player.col&&activeEnemies[i].row===player.row){
+            sfxLose(); startShake(10,0.4);
+            gameState='gameover'; return;
+        }
+    }
+}
+
+function update(dt){
+    if(shakeTime>0) shakeTime-=dt;
+    if(gameState==='paused') return;
+    if(gameState!=='playing') return;
+    timer+=dt; blinkTimer+=dt;
+    playerPulse+=dt*3;
+    updateEnemies(dt);
+    moveTimer+=dt;
+    if(moveTimer<MOVE_DELAY) return;
+    moveTimer-=MOVE_DELAY;
+    if(keys['ArrowLeft']||keys['a'])       tryMove(-1,0);
+    else if(keys['ArrowRight']||keys['d']) tryMove(1,0);
+    else if(keys['ArrowUp']||keys['w'])    tryMove(0,-1);
+    else if(keys['ArrowDown']||keys['s'])  tryMove(0,1);
+}
+
+var COLORS={ 0:'#1a1d27',1:'#3a3f5c' };
+var offX=0, offY=44;
+
+function render(){
+    ctx.save();
+    if(shakeTime>0){
+        ctx.translate(
+            (Math.random()-0.5)*shakePower,
+            (Math.random()-0.5)*shakePower
+        );
+    }
+
+    ctx.fillStyle='#0b0c10';
+    ctx.fillRect(0,0,W,H);
+
+    for(var r=0;r<ROWS;r++){
+        for(var c=0;c<COLS;c++){
+            var tile=mapState[r][c];
+            if(tile===2){
+                var kp=0.8+0.2*Math.sin(Date.now()/300);
+                ctx.globalAlpha=kp;
+                ctx.fillStyle='#ffd166';
+                ctx.fillRect(offX+c*TILE,offY+r*TILE,TILE-1,TILE-1);
+                ctx.fillStyle='#111';
+                ctx.font='bold '+(TILE*0.55)+'px Arial';
+                ctx.textAlign='center';
+                ctx.fillText('K',offX+c*TILE+TILE/2,offY+r*TILE+TILE*0.74);
+                ctx.globalAlpha=1;
+                continue;
+            }
+            if(tile===3){
+                ctx.fillStyle=keysCollected===totalKeys?'#43e97b':'#3a3f5c';
+                ctx.fillRect(offX+c*TILE,offY+r*TILE,TILE-1,TILE-1);
+                ctx.fillStyle='#111';
+                ctx.font='bold '+(TILE*0.45)+'px Arial';
+                ctx.textAlign='center';
+                ctx.fillText('E',offX+c*TILE+TILE/2,offY+r*TILE+TILE*0.72);
+                continue;
+            }
+            ctx.fillStyle=COLORS[tile]||'#333';
+            ctx.fillRect(offX+c*TILE,offY+r*TILE,TILE-1,TILE-1);
+        }
+    }
+
+    // Musuh
+    for(var i=0;i<activeEnemies.length;i++){
+        var e=activeEnemies[i];
+        ctx.fillStyle='#ef233c';
+        ctx.beginPath();
+        ctx.arc(offX+e.col*TILE+TILE/2,offY+e.row*TILE+TILE/2,TILE*0.38,0,Math.PI*2);
+        ctx.fill();
+    }
+
+    // ✅ BONUS 1 — Efek cahaya area penglihatan player
+    var px=offX+player.col*TILE+TILE/2;
+    var py=offY+player.row*TILE+TILE/2;
+    var grad=ctx.createRadialGradient(px,py,TILE*0.4,px,py,TILE*2.5);
+    grad.addColorStop(0,'rgba(79,172,254,0.15)');
+    grad.addColorStop(1,'rgba(79,172,254,0)');
+    ctx.fillStyle=grad;
+    ctx.beginPath();
+    ctx.arc(px,py,TILE*2.5,0,Math.PI*2);
+    ctx.fill();
+
+    // Player pulse + glow
+    var pr=TILE*0.38*(0.9+0.1*Math.sin(playerPulse));
+    ctx.shadowBlur=10;
+    ctx.shadowColor='#4facfe';
+    ctx.fillStyle='#4facfe';
+    ctx.beginPath();
+    ctx.arc(px,py,pr,0,Math.PI*2);
+    ctx.fill();
+    ctx.shadowBlur=0;
+
+    // HUD
+    ctx.fillStyle='rgba(0,0,0,0.85)';
+    ctx.fillRect(0,0,W,44);
+    ctx.font='bold 13px Arial';
+    ctx.textAlign='left';
+    ctx.fillStyle='#fff';
+    ctx.fillText('Level: '+(currentLevel+1),10,28);
+    ctx.fillText('Langkah: '+steps,90,28);
+    ctx.fillStyle='#ffd166';
+    ctx.fillText('Waktu: '+Math.floor(timer)+'s',220,28);
+    ctx.fillStyle='#43e97b';
+    ctx.fillText('Best: '+(bestSteps===9999?'-':bestSteps),330,28);
+    ctx.textAlign='right';
+    ctx.fillStyle='#43e97b';
+    ctx.fillText('🔑 '+keysCollected+'/'+totalKeys,W-10,28);
+
+    // ✅ BONUS 3 — Hint + panah arah
+    if(hintText!==''){
+        ctx.textAlign='center';
+        ctx.fillStyle='rgba(0,0,0,0.6)';
+        ctx.fillRect(0,H-36,W,36);
+        ctx.fillStyle='#ff9f1c';
+        ctx.font='bold 13px Arial';
+        ctx.fillText(hintText,W/2-20,H-12);
+        ctx.font='bold 20px Arial';
+        ctx.fillStyle='#fff';
+        ctx.fillText(hintArrow,W-30,H-10);
+    }
+
+    // PAUSE
+    if(gameState==='paused'){
+        ctx.fillStyle='rgba(0,0,0,0.7)';
+        ctx.fillRect(0,0,W,H);
+        ctx.fillStyle='#fff';
+        ctx.font='bold 36px Arial';
+        ctx.textAlign='center';
+        ctx.fillText('PAUSE',W/2,H/2-10);
+        ctx.font='16px Arial';
+        ctx.fillText('Tekan P untuk lanjutkan',W/2,H/2+30);
+    }
+
+    // SPLASH
+    if(gameState==='splash'){
+        ctx.fillStyle='rgba(0,0,0,0.85)';
+        ctx.fillRect(0,0,W,H);
+        ctx.fillStyle='#4facfe';
+        ctx.font='bold 36px Arial';
+        ctx.textAlign='center';
+        ctx.fillText('MAZE RUNNER',W/2,H/2-20);
+        ctx.fillStyle='#fff';
+        ctx.font='18px Arial';
+        ctx.fillText('Tekan SPACE untuk mulai',W/2,H/2+30);
+    }
+
+    // WIN
+    if(gameState==='win'){
+        ctx.fillStyle='rgba(0,0,0,0.8)';
+        ctx.fillRect(0,0,W,H);
+        ctx.fillStyle='#ffd166';
+        ctx.font='bold 34px Arial';
+        ctx.textAlign='center';
+        ctx.fillText('SELESAI!',W/2,H/2-80);
+        ctx.fillStyle='#fff';
+        ctx.font='bold 18px Arial';
+        ctx.fillText('Level '+(currentLevel+1)+' selesai!',W/2,H/2-40);
+        ctx.fillText('Langkah: '+steps,W/2,H/2-10);
+        ctx.fillText('Waktu: '+Math.floor(timer)+' detik',W/2,H/2+20);
+        ctx.fillStyle='#ffd166';
+        ctx.fillText('Best: '+(bestSteps===9999?'-':bestSteps)+' langkah',W/2,H/2+48);
+        ctx.fillStyle='#4facfe';
+        ctx.font='15px Arial';
+        if(currentLevel<MAPS.length-1){
+            ctx.fillText('Tekan N → Level berikutnya',W/2,H/2+85);
+        } else {
+            ctx.fillText('🏆 Semua level selesai!',W/2,H/2+85);
+        }
+        ctx.fillStyle='#aaa';
+        ctx.fillText('Tekan R → Ulangi level',W/2,H/2+110);
+    }
+
+    // GAME OVER
+    if(gameState==='gameover'){
+        ctx.fillStyle='rgba(0,0,0,0.85)';
+        ctx.fillRect(0,0,W,H);
+        ctx.fillStyle='#ef233c';
+        ctx.font='bold 38px Arial';
+        ctx.textAlign='center';
+        ctx.fillText('GAME OVER',W/2,H/2-20);
+        ctx.fillStyle='#fff';
+        ctx.font='18px Arial';
+        ctx.fillText('Tekan R untuk restart',W/2,H/2+40);
+    }
+
+    ctx.restore();
+}
+
+function loop(ts){
+    var dt=Math.min((ts-lastTime)/1000,0.05);
+    lastTime=ts; update(dt); render();
+    requestAnimationFrame(loop);
+}
+
+document.addEventListener('keydown',function(e){
+    keys[e.key]=true;
+    e.preventDefault();
+    if(e.key===' '&&gameState==='splash') loadLevel(0);
+    if((e.key==='n'||e.key==='N')&&gameState==='win'){
+        if(currentLevel<MAPS.length-1) loadLevel(currentLevel+1);
+    }
+    if(e.key==='r'||e.key==='R') loadLevel(currentLevel);
+    if(e.key==='p'||e.key==='P'){
+        if(gameState==='playing') gameState='paused';
+        else if(gameState==='paused') gameState='playing';
+    }
+});
+
+document.addEventListener('keyup',function(e){ keys[e.key]=false; });
+requestAnimationFrame(function(ts){ lastTime=ts; requestAnimationFrame(loop); });
+
+</script>
+
+</body>
+</html>
